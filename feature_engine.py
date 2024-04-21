@@ -4,6 +4,12 @@ import numpy as np
 from scipy.fft import fft
 from category_encoders import OneHotEncoder
 
+"""
+TODO:
+Add Morlet Mexican Hat Columns IFF FFT does well
+Consider Insulin etc.
+"""
+
 class FeatureEngine:
     def __init__(self,):
         self.training_set = pd.read_csv("cleaned_data/train_data.csv")
@@ -11,15 +17,35 @@ class FeatureEngine:
         self.test_set = pd.read_csv("cleaned_data/test_data.csv")
         self.demographic_set = pd.read_csv("Data Tables/HScreening.txt", delimiter = '|')
         self.time_series = pd.read_csv("Experimental_Notebooks/resampled_day.csv")
-        self.aggregate_window(self.tar, "tar")
+        self.aggregate_window(self.gri, "gri")
         self.aggregate_window(self.tbr, "tbr")
+        self.aggregate_window(self.tar, "tar")
+        self.aggregate_window(self.tir, "tir")
         self.aggregate_window(self.rolling_mean, "mean")
         self.aggregate_window(self.rolling_deviation, "std")
         self.aggregate_window(self.tir, "tir")
         self.aggregate_window(self.fft, "fft")
         self.add_demographics()
+        self.add_dates()
 
-
+    def add_dates(self,) -> None:
+        # Function to convert and encode dates for a given dataset
+        def encode_dates(dataset):
+            dataset['corresponding_day'] = pd.to_datetime(dataset['corresponding_day'])
+            day_encoded = pd.get_dummies(dataset['corresponding_day'].dt.day, prefix='Day', dtype=int)
+            month_encoded = pd.get_dummies(dataset['corresponding_day'].dt.month, prefix='Month', dtype=int)
+            year_encoded = pd.get_dummies(dataset['corresponding_day'].dt.year, prefix='Year', dtype=int)
+            
+            # Drop the 'corresponding_day' column if you don't need it anymore
+            dataset.drop(['corresponding_day'], axis=1, inplace=True)
+            
+            # Concatenate the one-hot encoded columns with the dataset
+            return pd.concat([dataset, day_encoded, month_encoded, year_encoded], axis=1)
+        
+        # Apply the encoding function to each dataset
+        self.training_set = encode_dates(self.training_set)
+        self.validation_set = encode_dates(self.validation_set)
+        self.test_set = encode_dates(self.test_set)
     
     def fft(self, arr:np.ndarray) -> np.ndarray:
         return fft(arr)
@@ -27,6 +53,27 @@ class FeatureEngine:
     def rolling_deviation(self, arr:np.ndarray) -> np.ndarray:
         return np.std(arr)
     
+    def gri(self, arr:np.ndarray) -> np.ndarray:
+        # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10563532/pdf/10.1177_19322968221085273.pdfa
+
+        # Define the thresholds for the different categories
+        vlow_threshold = 54
+        low_threshold = 70
+        high_threshold = 180
+        vhigh_threshold = 250
+        
+        # Calculate the percentages for each category
+        vlow_percentage = np.mean(arr < vlow_threshold)
+        low_percentage = np.mean((arr >= vlow_threshold) & (arr < low_threshold))
+        high_percentage = np.mean((arr >= high_threshold) & (arr < vhigh_threshold))
+        vhigh_percentage = np.mean(arr >= vhigh_threshold)
+        
+        # Calculate the GRI according to the formula
+        gri_value = (3.0 * vlow_percentage) + (2.4 * low_percentage) \
+                    + (1.6 * vhigh_percentage) + (0.8 * high_percentage)
+        
+        return gri_value
+        
     def tar(self, arr: np.ndarray) -> np.ndarray:
         mask = arr > 180
         return np.mean(mask)
@@ -113,10 +160,16 @@ class FeatureEngine:
                 for i in range(fft_results_train.shape[1]):
                     fft_data_train[f'{func_name}_{window_name}_real_{i}'] = fft_results_train[:, i].real
                     fft_data_train[f'{func_name}_{window_name}_imag_{i}'] = fft_results_train[:, i].imag
+                    fft_data_train[f'{func_name}_{window_name}_mag_{i}'] = np.abs(fft_results_train[:,i])
+                    fft_data_train[f'{func_name}_{window_name}_phase_{i}'] = np.angle(fft_results_train[:,i])
                     fft_data_valid[f'{func_name}_{window_name}_real_{i}'] = fft_results_valid[:, i].real
                     fft_data_valid[f'{func_name}_{window_name}_imag_{i}'] = fft_results_valid[:, i].imag
+                    fft_data_valid[f'{func_name}_{window_name}_mag_{i}'] = np.abs(fft_results_valid[:,i])
+                    fft_data_valid[f'{func_name}_{window_name}_phase_{i}'] = np.angle(fft_results_valid[:,i])
                     fft_data_test[f'{func_name}_{window_name}_real_{i}'] = fft_results_test[:, i].real
                     fft_data_test[f'{func_name}_{window_name}_imag_{i}'] = fft_results_test[:, i].imag
+                    fft_data_test[f'{func_name}_{window_name}_mag_{i}'] = np.abs(fft_results_test[:,i])
+                    fft_data_test[f'{func_name}_{window_name}_phase_{i}'] = np.angle(fft_results_test[:,i])
                 
                 # Convert dictionary to DataFrame and concatenate
                 new_train_df = pd.DataFrame(fft_data_train)
