@@ -17,6 +17,7 @@ class FeatureEngine:
         self.test_set = pd.read_csv("cleaned_data/test_data.csv")
         self.demographic_set = pd.read_csv("Data Tables/HScreening.txt", delimiter = '|')
         self.time_series = pd.read_csv("Experimental_Notebooks/resampled_day.csv")
+        # NUMERICAL DATA
         self.aggregate_window(self.gri, "gri")
         self.aggregate_window(self.tbr, "tbr")
         self.aggregate_window(self.tar, "tar")
@@ -25,6 +26,7 @@ class FeatureEngine:
         self.aggregate_window(self.rolling_deviation, "std")
         self.aggregate_window(self.tir, "tir")
         self.aggregate_window(self.fft, "fft")
+        # CATEGORICAL DATA
         self.add_demographics()
         self.add_dates()
 
