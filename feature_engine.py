@@ -25,7 +25,7 @@ class FeatureEngine:
         self.aggregate_window(self.rolling_mean, "mean")
         self.aggregate_window(self.rolling_deviation, "std")
         self.aggregate_window(self.tir, "tir")
-        self.aggregate_window(self.fft, "fft")
+        #self.aggregate_window(self.fft, "fft")
         # CATEGORICAL DATA
         self.add_demographics()
         self.add_dates()
