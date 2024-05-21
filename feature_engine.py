@@ -13,32 +13,31 @@ Consider Insulin etc.
 
 class FeatureEngine:
     def __init__(self,):
-        self.training_data = pd.read_csv("cleaned_data/train_data.csv")
-        self.validation_data = pd.read_csv("cleaned_data/validation_data.csv")
-        self.test_data = pd.read_csv("cleaned_data/test_data.csv")
+        self.training_data = pd.read_csv("cleaned_data/train_data.csv").iloc[:,1:]
+        self.validation_data = pd.read_csv("cleaned_data/validation_data.csv").iloc[:,1:]
+        self.test_data = pd.read_csv("cleaned_data/test_data.csv").iloc[:,1:]
         self.training_set, self.validation_set, self.test_set = pd.DataFrame(),  pd.DataFrame(),  pd.DataFrame()
-        self.training_set.loc[:, 'id'] = self.training_data.loc[:, "id"]
-        self.validation_set.loc[:, 'id'] = self.validation_data.loc[:, "id"]
-        self.test_set.loc[:, 'id'] = self.test_data.loc[:, "id"]
+        self.training_set = self.training_data.loc[:, ("id", "corresponding_day")]
+        self.validation_set = self.validation_data.loc[:, ("id", "corresponding_day")]
+        self.test_set = self.test_data.loc[:, ("id", "corresponding_day")]
         self.demographic_set = pd.read_csv("Data Tables/HScreening.txt", delimiter = '|')
         # NUMERICAL DATA
-        #self.aggregate_window(self.mean_diff, "mean_diff")
-        #self.aggregate_window(self.gri, "gri")
-        #self.aggregate_window(self.tbr, "tbr")
-        #self.aggregate_window(self.tir, "tir")
-        #self.aggregate_window(self.tar, "tar")
-        #self.aggregate_window(self.rolling_mean, "mean")
-        #self.aggregate_window(self.rolling_deviation, "std")
-        #self.aggregate_window(self.fft, "fft")
+        self.aggregate_window(self.gri, "gri")
+        self.aggregate_window(self.tbr, "tbr")
+        self.aggregate_window(self.tir, "tir")
+        self.aggregate_window(self.tar, "tar")
+        self.aggregate_window(self.rolling_mean, "mean")
+        self.aggregate_window(self.rolling_deviation, "std")
+        self.aggregate_window(self.fft, "fft")
         # CATEGORICAL DATA
         self.add_demographics()
-        #self.add_dates()
+        self.add_dates()
         del self.training_set['id']
-        del self.training_set['PtID']
         del self.validation_set['id']
-        del self.validation_set['PtID']
         del self.test_set['id']
-        del self.test_set['PtID']
+        #del self.training_set['corresponding_day']
+        #del self.validation_set['corresponding_day']
+        #del self.test_set['corresponding_day']
 
     def add_dates(self,) -> None:
         # Function to convert and encode dates for a given dataset
@@ -56,7 +55,7 @@ class FeatureEngine:
         
         # Apply the encoding function to each dataset
         self.training_set = encode_dates(self.training_set)
-        self.validation_set = encode_dates(self.validation_set)
+        self.validation_set= encode_dates(self.validation_set)
         self.test_set = encode_dates(self.test_set)
     
     def fft(self, arr:np.ndarray) -> np.ndarray:
@@ -104,31 +103,6 @@ class FeatureEngine:
     def add_demographics(self) -> None:
         """
         Merge selected demographic features into the training, validation, and test sets.
-        Encode them using one-hot encoding.
-        """
-        # Columns to merge
-        columns_to_merge = [
-            'PtID', 'Gender', 'Ethnicity', 'Race', 'SHMostRec', 'SHNumLast12Mon', 'DKAMostRec', 'DKANumLast12Mon',
-            'OthGlucLowerMed','PEAbnormal', # 'Weight', 'Height', 
-        ]
-
-        # Filter the demographic set to include only the necessary columns
-        demographics = self.demographic_set[columns_to_merge]
-
-        # Prepare the encoder
-        encoder = OneHotEncoder(cols=['Gender', 'Ethnicity', 'Race', 'SHMostRec', 'SHNumLast12Mon', 'DKAMostRec', 'DKANumLast12Mon', 'OthGlucLowerMed', 'PEAbnormal'], use_cat_names=True)
-
-        # Fit and transform the encoder on the demographic data
-        demographics_encoded = encoder.fit_transform(demographics)
-
-        # Merge the encoded demographic data with each dataset
-        self.training_set = self.training_set.merge(demographics_encoded, how='left', left_on='id', right_on='PtID')
-        self.validation_set = self.validation_set.merge(demographics_encoded, how='left', left_on='id', right_on='PtID')
-        self.test_set = self.test_set.merge(demographics_encoded, how='left', left_on='id', right_on='PtID')
-
-    def add_demographics(self) -> None:
-        """
-        Merge selected demographic features into the training, validation, and test sets.
         Encode them using one-hot encoding and quantile encoding for continuous variables.
         """
         # Columns to merge
@@ -160,6 +134,10 @@ class FeatureEngine:
         self.validation_set = self.validation_set.merge(demographics_encoded, how='left', left_on='id', right_on='PtID')
         self.test_set = self.test_set.merge(demographics_encoded, how='left', left_on='id', right_on='PtID')
 
+        del self.training_set['PtID']
+        del self.validation_set['PtID']
+        del self.test_set['PtID']
+
     def aggregate_window(self, func: Callable, func_name: str) -> None:
         """
         Apply func over various window sizes and add columns to training and validation sets for the output of these aggregate functions
@@ -180,7 +158,7 @@ class FeatureEngine:
 
         # Convert the column names to a format we can perform calculations on (number of minutes since 06:00:00)
 
-        stamps = self.training_data.columns[6:222]
+        stamps = self.training_data.columns[2:218]
         
         times = pd.to_timedelta(stamps).total_seconds()/60  # Convert to minutes
 
