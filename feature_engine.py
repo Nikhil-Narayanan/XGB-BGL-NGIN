@@ -177,9 +177,9 @@ class FeatureEngine:
                 fft_data_valid = {}
                 fft_data_test = {}
 
-                fft_results_train = np.apply_along_axis(func, 1, self.training_set[columns_to_aggregate].values)
-                fft_results_valid = np.apply_along_axis(func, 1, self.validation_set[columns_to_aggregate].values)
-                fft_results_test = np.apply_along_axis(func, 1, self.test_set[columns_to_aggregate].values)
+                fft_results_train = np.apply_along_axis(func, 1, self.training_data[columns_to_aggregate].values)
+                fft_results_valid = np.apply_along_axis(func, 1, self.validation_data[columns_to_aggregate].values)
+                fft_results_test = np.apply_along_axis(func, 1, self.test_data[columns_to_aggregate].values)
 
                 for i in range(fft_results_train.shape[1]):
                     fft_data_train[f'{func_name}_{window_name}_real_{i}'] = fft_results_train[:, i].real
