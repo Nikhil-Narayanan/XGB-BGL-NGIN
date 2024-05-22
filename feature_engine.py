@@ -3,6 +3,8 @@ from typing import Callable
 import numpy as np
 from category_encoders import OneHotEncoder
 import librosa
+from scipy.stats import ecdf
+import pywt
 
 """
 TODO:
@@ -29,13 +31,13 @@ class FeatureEngine:
         self.spectral_decrease() #GOOD
         # NUMERICAL DATA
         #self.aggregate_window(self.gri, "gri")
-        self.aggregate_window(self.tbr, "tbr") #GOOD
+        #self.aggregate_window(self.tbr, "tbr") #GOOD
         #self.aggregate_window(self.tir, "tir")
         #self.aggregate_window(self.tar, "tar")
-        #self.aggregate_window(self.wavelet_absolute_mean) #TODO
+        self.aggregate_window(self.wavelet_absolute_mean, "morlet") #GOOD
         self.aggregate_window(self.spectral_centroid, "centroid") #GOOD
-        #self.aggreggate_window(self.spectral_distance, "spectral_distance") #TODO
-        #self.aggregate_window(self.ecdf_percentile, "ecdf_percentile") #TODO
+        #self.aggreggate_window(self.spectral_distance, "spectral_distance") #TODO #ILL DEFINED IN PAPER PLS HELP
+        #self.aggregate_window(self.ecdf_percentile, "ecdf") #TODO ILL defined in paper pls help
         #self.aggregate_window(self.rolling_mean, "mean")
         #self.aggregate_window(self.rolling_deviation, "std")
         self.aggregate_window(self.fft_means, "fft_mean_coeffs") #GOOD
@@ -116,8 +118,23 @@ class FeatureEngine:
         b2 = fft.shape[0] // 2 - 1
         return centroid(fft, b1, b2)
 
+    def ecdf_percentile_low(self, arr: np.ndarray) -> np.ndarray:
+        res = ecdf(arr)
+        interval = res.cdf.confidence_interval()
+        return interval.low()
 
-        
+    def ecdf_percentile_high(self, arr: np.ndarray) -> np.ndarray:
+        res = ecdf(arr)
+        interval = res.cdf.confidence_interval()
+        print(interval.high)
+        return interval.high()
+
+    def wavelet_absolute_mean(self, arr:np.array) -> np.ndarray:
+        # Using Morlet Wavelet
+        f = pywt.scale2frequency('morl', 2)/5.0
+        coefs, _ = pywt.cwt(arr, f, 'morl')
+        a = np.mean(np.abs(coefs))
+        return a
 
     def mel_cepstral(self,) -> None:
         # Mel Ceptstral coefficients for last hour prior to sleep
