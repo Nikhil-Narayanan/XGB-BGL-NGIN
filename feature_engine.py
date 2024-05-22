@@ -1,9 +1,8 @@
 import pandas as pd 
 from typing import Callable
 import numpy as np
-from scipy.fft import fft
 from category_encoders import OneHotEncoder
-from sklearn.preprocessing import QuantileTransformer
+import librosa
 
 """
 TODO:
@@ -20,24 +19,59 @@ class FeatureEngine:
         self.training_set = self.training_data.loc[:, ("id", "corresponding_day")]
         self.validation_set = self.validation_data.loc[:, ("id", "corresponding_day")]
         self.test_set = self.test_data.loc[:, ("id", "corresponding_day")]
+        self.training_labels = self.training_data.loc[:, 'hypo']
+        self.validation_labels = self.validation_data.loc[:, 'hypo']
+        self.test_labels = self.test_data.loc[:, 'hypo']
         self.demographic_set = pd.read_csv("Data Tables/HScreening.txt", delimiter = '|')
+        # FINAL HOUR DATA
+        self.mean_median_diff()  #GOOD
+        #self.mel_cepstral() #TODO
+        #self.aggregate_window(self.spectral_decrease, "spectral_decrease", True) #TODO
         # NUMERICAL DATA
-        self.aggregate_window(self.gri, "gri")
-        self.aggregate_window(self.tbr, "tbr")
-        self.aggregate_window(self.tir, "tir")
-        self.aggregate_window(self.tar, "tar")
-        self.aggregate_window(self.rolling_mean, "mean")
-        self.aggregate_window(self.rolling_deviation, "std")
-        self.aggregate_window(self.fft, "fft")
+        #self.aggregate_window(self.gri, "gri")
+        #self.aggregate_window(self.tbr, "tbr")
+        #self.aggregate_window(self.tir, "tir")
+        #self.aggregate_window(self.tar, "tar")
+        #self.aggreggate_window(self.centroid, "centroid") #TODO
+        #self.aggreggate_window(self.spectral_distance, "spectral_distance") #TODO
+        #self.aggregate_window(self.ecdf_percentile, "ecdf_percentile") #TODO
+        #self.aggregate_window(self.rolling_mean, "mean")
+        #self.aggregate_window(self.rolling_deviation, "std")
+        self.aggregate_window(self.fft_means, "fft_mean_coeffs") #GOOD
         # CATEGORICAL DATA
-        self.add_demographics()
-        self.add_dates()
+        self.add_demographics() #GOOD
+        #self.add_dates()
         del self.training_set['id']
         del self.validation_set['id']
         del self.test_set['id']
-        #del self.training_set['corresponding_day']
-        #del self.validation_set['corresponding_day']
-        #del self.test_set['corresponding_day']
+        del self.training_set['corresponding_day']
+        del self.validation_set['corresponding_day']
+        del self.test_set['corresponding_day']
+    
+    def mean_median_diff(self,) -> None:
+        time_columns = [col for col in self.training_data.columns if col >= '23:00:00'][2:-1]
+        train_differences = self.training_data[time_columns].diff(axis=1).iloc[:, 1:]
+        validation_differences = self.validation_data[time_columns].diff(axis=1).iloc[:, 1:]
+        test_differences = self.test_data[time_columns].diff(axis=1).iloc[:, 1:]
+        self.training_set['mean_diff'] = train_differences.mean(axis=1)
+        self.validation_set['mean_diff'] = validation_differences.mean(axis=1)
+        self.test_set['mean_diff'] = test_differences.mean(axis=1)
+        self.training_set['median_diff'] = train_differences.median(axis=1)
+        self.validation_set['median_diff'] = validation_differences.median(axis=1)
+        self.test_set['median_diff'] = test_differences.median(axis=1)
+
+    def mel_cepstral(self,) -> None:
+        # Mel Ceptstral coefficients for last hour prior to sleep
+        time_columns = [col for col in self.training_data.columns if col >= '23:00:00'][2:-1]
+        final_hour_training = np.array(self.training_data[time_columns])
+        final_hour_validation = np.array(self.validation_data[time_columns])
+        final_hour_test = np.array(self.test_data[time_columns])
+        self.mffcs_training = librosa.feature.mfcc(y=final_hour_training, sr=0.2, n_mfcc=1, n_fft=12, n_mels=8)
+        self.mffcs_validation = librosa.feature.mfcc(y=final_hour_validation, sr=0.2, n_mfcc=1, n_fft=12, n_mels=8)
+        self.mffcs_test = librosa.feature.mfcc(y=final_hour_test, sr=0.2, n_mfcc=1, n_fft=12, n_mels=8)
+        #self.training_set['mffcs'] = mffcs_training
+        #self.validation_set['mffcs'] = mffcs_validation
+        #self.test_set['mffcs'] = mffcs_test
 
     def add_dates(self,) -> None:
         # Function to convert and encode dates for a given dataset
@@ -58,7 +92,7 @@ class FeatureEngine:
         self.validation_set= encode_dates(self.validation_set)
         self.test_set = encode_dates(self.test_set)
     
-    def fft(self, arr:np.ndarray) -> np.ndarray:
+    def fft_means(self, arr:np.ndarray) -> np.ndarray:
         return fft(arr)
     
     def rolling_deviation(self, arr:np.ndarray) -> np.ndarray:
@@ -138,7 +172,7 @@ class FeatureEngine:
         del self.validation_set['PtID']
         del self.test_set['PtID']
 
-    def aggregate_window(self, func: Callable, func_name: str) -> None:
+    def aggregate_window(self, func: Callable, func_name: str, final_hour: bool = False) -> None:
         """
         Apply func over various window sizes and add columns to training and validation sets for the output of these aggregate functions
         
@@ -155,12 +189,23 @@ class FeatureEngine:
             'last_6_hours': 360,
             'last_12_hours': 720
         }
+        if final_hour:
+            time_windows = {'last_1_hour': 60,}
 
         # Convert the column names to a format we can perform calculations on (number of minutes since 06:00:00)
 
         stamps = self.training_data.columns[2:218]
         
         times = pd.to_timedelta(stamps).total_seconds()/60  # Convert to minutes
+
+        def compute_mean_frequency(signal, fs):
+            fft_values = np.fft.fft(signal)
+            fft_freqs = np.fft.fftfreq(len(signal), 1.0/fs)
+            positive_freqs = fft_freqs[:len(signal)//2]
+            positive_fft_values = fft_values[:len(signal)//2]
+            power_spectrum = np.abs(positive_fft_values) ** 2
+            mean_frequency = np.sum(positive_freqs * power_spectrum) / np.sum(power_spectrum)
+            return mean_frequency
 
         # Apply the aggregation function over specified time windows
         for window_name, minutes in time_windows.items():
@@ -171,34 +216,27 @@ class FeatureEngine:
             # Get columns that fall within the current time window
             columns_to_aggregate = [time for time in stamps if min_time < pd.to_timedelta(time).total_seconds()/60 <= max_time]
 
-            if func == self.fft:
-                # Process FFT and store results in new DataFrames
-                fft_data_train = {}
-                fft_data_valid = {}
-                fft_data_test = {}
+            if func == self.fft_means:
+                # Process FFT and store mean frequencies in new DataFrames
+                mean_freq_data_train = {}
+                mean_freq_data_valid = {}
+                mean_freq_data_test = {}
 
-                fft_results_train = np.apply_along_axis(func, 1, self.training_data[columns_to_aggregate].values)
-                fft_results_valid = np.apply_along_axis(func, 1, self.validation_data[columns_to_aggregate].values)
-                fft_results_test = np.apply_along_axis(func, 1, self.test_data[columns_to_aggregate].values)
+                fs = 0.2  # 1 reading every 5 minutes
+                compute_mean_freq_func = lambda x: compute_mean_frequency(x, fs)
+                
+                mean_freq_results_train = np.apply_along_axis(compute_mean_freq_func, 1, self.training_data[columns_to_aggregate].values)
+                mean_freq_results_valid = np.apply_along_axis(compute_mean_freq_func, 1, self.validation_data[columns_to_aggregate].values)
+                mean_freq_results_test = np.apply_along_axis(compute_mean_freq_func, 1, self.test_data[columns_to_aggregate].values)
 
-                for i in range(fft_results_train.shape[1]):
-                    fft_data_train[f'{func_name}_{window_name}_real_{i}'] = fft_results_train[:, i].real
-                    fft_data_train[f'{func_name}_{window_name}_imag_{i}'] = fft_results_train[:, i].imag
-                    fft_data_train[f'{func_name}_{window_name}_mag_{i}'] = np.abs(fft_results_train[:,i])
-                    fft_data_train[f'{func_name}_{window_name}_phase_{i}'] = np.angle(fft_results_train[:,i])
-                    fft_data_valid[f'{func_name}_{window_name}_real_{i}'] = fft_results_valid[:, i].real
-                    fft_data_valid[f'{func_name}_{window_name}_imag_{i}'] = fft_results_valid[:, i].imag
-                    fft_data_valid[f'{func_name}_{window_name}_mag_{i}'] = np.abs(fft_results_valid[:,i])
-                    fft_data_valid[f'{func_name}_{window_name}_phase_{i}'] = np.angle(fft_results_valid[:,i])
-                    fft_data_test[f'{func_name}_{window_name}_real_{i}'] = fft_results_test[:, i].real
-                    fft_data_test[f'{func_name}_{window_name}_imag_{i}'] = fft_results_test[:, i].imag
-                    fft_data_test[f'{func_name}_{window_name}_mag_{i}'] = np.abs(fft_results_test[:,i])
-                    fft_data_test[f'{func_name}_{window_name}_phase_{i}'] = np.angle(fft_results_test[:,i])
+                mean_freq_data_train[f'{func_name}_{window_name}_mean_freq'] = mean_freq_results_train
+                mean_freq_data_valid[f'{func_name}_{window_name}_mean_freq'] = mean_freq_results_valid
+                mean_freq_data_test[f'{func_name}_{window_name}_mean_freq'] = mean_freq_results_test
                 
                 # Convert dictionary to DataFrame and concatenate
-                new_train_df = pd.DataFrame(fft_data_train)
-                new_valid_df = pd.DataFrame(fft_data_valid)
-                new_test_df = pd.DataFrame(fft_data_test)
+                new_train_df = pd.DataFrame(mean_freq_data_train)
+                new_valid_df = pd.DataFrame(mean_freq_data_valid)
+                new_test_df = pd.DataFrame(mean_freq_data_test)
 
                 self.training_set = pd.concat([self.training_set, new_train_df], axis=1)
                 self.validation_set = pd.concat([self.validation_set, new_valid_df], axis=1)
