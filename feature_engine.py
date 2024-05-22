@@ -25,14 +25,15 @@ class FeatureEngine:
         self.demographic_set = pd.read_csv("Data Tables/HScreening.txt", delimiter = '|')
         # FINAL HOUR DATA
         self.mean_median_diff()  #GOOD
-        #self.mel_cepstral() #TODO
-        #self.aggregate_window(self.spectral_decrease, "spectral_decrease", True) #TODO
+        self.mel_cepstral() #GOOD
+        self.spectral_decrease() #GOOD
         # NUMERICAL DATA
         #self.aggregate_window(self.gri, "gri")
-        #self.aggregate_window(self.tbr, "tbr")
+        self.aggregate_window(self.tbr, "tbr") #GOOD
         #self.aggregate_window(self.tir, "tir")
         #self.aggregate_window(self.tar, "tar")
-        #self.aggreggate_window(self.centroid, "centroid") #TODO
+        #self.aggregate_window(self.wavelet_absolute_mean) #TODO
+        self.aggregate_window(self.spectral_centroid, "centroid") #GOOD
         #self.aggreggate_window(self.spectral_distance, "spectral_distance") #TODO
         #self.aggregate_window(self.ecdf_percentile, "ecdf_percentile") #TODO
         #self.aggregate_window(self.rolling_mean, "mean")
@@ -60,18 +61,76 @@ class FeatureEngine:
         self.validation_set['median_diff'] = validation_differences.median(axis=1)
         self.test_set['median_diff'] = test_differences.median(axis=1)
 
+    def spectral_decrease(self,) -> None:
+        #Spectral decrease of final 11 hour prior to sleep
+        def spectral_decrease(s, b1, b2):
+            """
+            Calculate the spectral decrease.
+
+            Parameters:
+            s (array): Spectral values
+            b1 (int): Lower band edge (bin)
+            b2 (int): Upper band edge (bin)
+
+            Returns:
+            float: Spectral decrease value
+            """
+            numerator = np.sum([(s[k] - s[b1]) / (k - 1) for k in range(b1 + 1, b2 + 1)],)
+            denominator = np.sum([s[k] for k in range(b1 + 1, b2 + 1)],)
+            
+            return numerator / denominator if denominator != 0 else 0
+
+        time_columns = [col for col in self.training_data.columns if col >= '13:00:00'][2:-1]
+        training_ts = np.array(self.training_data[time_columns])
+        validation_ts = np.array(self.validation_data[time_columns])
+        test_ts = np.array(self.test_data[time_columns])
+        fft_training = np.abs(np.fft.fft(training_ts))
+        fft_validation = np.abs(np.fft.fft(validation_ts))
+        fft_test = np.abs(np.fft.fft(test_ts))
+        b1 = 1
+        b2 = 132//2 -1
+        self.training_set['spectral_decrease_11h'] = np.apply_along_axis(func1d=spectral_decrease, axis=1, arr=fft_training, b1=b1, b2=b2)
+        self.validation_set['spectral_decrease_11h'] = np.apply_along_axis(func1d=spectral_decrease, axis=1, arr=fft_validation, b1=b1, b2=b2)
+        self.test_set['spectral_decrease_11h'] = np.apply_along_axis(func1d=spectral_decrease, axis=1, arr=fft_test, b1=b1, b2=b2)
+    
+    def spectral_centroid(self, arr: np.ndarray) -> np.ndarray:
+        def centroid(s, b1, b2):
+            """
+            Calculate the spectral centroid.
+
+            Parameters:
+            s (array): Spectral values
+            b1 (int): Lower band edge (bin)
+            b2 (int): Upper band edge (bin)
+
+            Returns:
+            float: Spectral centroid value
+            """
+            numerator = np.sum([k * s[k] for k in range(b1 + 1, b2 + 1)])
+            denominator = np.sum([s[k] for k in range(b1 + 1, b2 + 1)])
+            
+            return numerator / denominator if denominator != 0 else 0
+
+        fft = np.abs(np.fft.fft(arr))
+        b1 = 1
+        b2 = fft.shape[0] // 2 - 1
+        return centroid(fft, b1, b2)
+
+
+        
+
     def mel_cepstral(self,) -> None:
         # Mel Ceptstral coefficients for last hour prior to sleep
         time_columns = [col for col in self.training_data.columns if col >= '23:00:00'][2:-1]
         final_hour_training = np.array(self.training_data[time_columns])
         final_hour_validation = np.array(self.validation_data[time_columns])
         final_hour_test = np.array(self.test_data[time_columns])
-        self.mffcs_training = librosa.feature.mfcc(y=final_hour_training, sr=0.2, n_mfcc=1, n_fft=12, n_mels=8)
-        self.mffcs_validation = librosa.feature.mfcc(y=final_hour_validation, sr=0.2, n_mfcc=1, n_fft=12, n_mels=8)
-        self.mffcs_test = librosa.feature.mfcc(y=final_hour_test, sr=0.2, n_mfcc=1, n_fft=12, n_mels=8)
-        #self.training_set['mffcs'] = mffcs_training
-        #self.validation_set['mffcs'] = mffcs_validation
-        #self.test_set['mffcs'] = mffcs_test
+        mffcs_training = librosa.feature.mfcc(y=final_hour_training, sr=0.2, n_mfcc=1, n_fft=12, n_mels=8).reshape(29539,1)
+        mffcs_validation = librosa.feature.mfcc(y=final_hour_validation, sr=0.2, n_mfcc=1, n_fft=12, n_mels=8).reshape(3687, 1)
+        mffcs_test = librosa.feature.mfcc(y=final_hour_test, sr=0.2, n_mfcc=1, n_fft=12, n_mels=8).reshape(3693, 1)
+        self.training_set['mffcs'] = mffcs_training
+        self.validation_set['mffcs'] = mffcs_validation
+        self.test_set['mffcs'] = mffcs_test
 
     def add_dates(self,) -> None:
         # Function to convert and encode dates for a given dataset
@@ -182,8 +241,6 @@ class FeatureEngine:
         """
         # Define the time intervals in minutes for aggregation
         time_windows = {
-            'last_10_minutes': 10,
-            'last_30_minutes': 30,
             'last_1_hour': 60,
             'last_3_hours': 180,
             'last_6_hours': 360,
